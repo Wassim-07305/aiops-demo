@@ -1,103 +1,174 @@
-import Image from "next/image";
+// app/page.tsx
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Role = "user" | "agent";
+type Message = { id: string; role: Role; text: string; at: string };
+type Tab = "Support" | "Pré-vente";
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [activeTab, setActiveTab] = useState<Tab>("Support");
+  const [input, setInput] = useState("");
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const [supportMessages, setSupportMessages] = useState<Message[]>([
+    { id: uid(), role: "agent", text: "Bonjour 👋 Que puis-je faire pour vous (support L1) ?", at: new Date().toISOString() },
+  ]);
+  const [presalesMessages, setPresalesMessages] = useState<Message[]>([
+    { id: uid(), role: "agent", text: "Bonjour 👋 Souhaitez-vous être qualifié et prendre un RDV ?", at: new Date().toISOString() },
+  ]);
+
+  const messages = activeTab === "Support" ? supportMessages : presalesMessages;
+  const setMessages = activeTab === "Support" ? setSupportMessages : setPresalesMessages;
+
+  const lastUserMessage = useMemo(
+    () => [...messages].reverse().find((m) => m.role === "user")?.text ?? null,
+    [messages]
+  );
+
+  async function onSend() {
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    const now = new Date().toISOString();
+
+    setMessages((m) => [...m, { id: uid(), role: "user", text, at: now }]);
+
+    // Réponse mock (le vrai RAG viendra demain)
+    setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          role: "agent",
+          text: `J'ai reçu: "${text}" (réponse mock)`,
+          at: new Date().toISOString(),
+        },
+      ]);
+    }, 250);
+  }
+
+  async function onHandoff() {
+    try {
+      const res = await fetch("/api/handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tab: activeTab,
+          lastUserMessage,
+          transcript: messages,
+          at: new Date().toISOString(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({ ok: false }));
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          role: "agent",
+          text: data?.ok ? "✅ Handoff envoyé (mock)" : "⚠️ Handoff échoué",
+          at: new Date().toISOString(),
+        },
+      ]);
+      console.log("Handoff response:", data);
+    } catch (e) {
+      console.error(e);
+      setMessages((m) => [
+        ...m,
+        { id: uid(), role: "agent", text: "⚠️ Erreur handoff", at: new Date().toISOString() },
+      ]);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto max-w-4xl p-6 sm:p-10">
+        <header className="mb-4 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">AI Ops Demo</h1>
+          <p className="text-sm text-foreground/60">Squelette — 2 onglets, chat &amp; handoff (mock)</p>
+        </header>
+
+        {/* Tabs */}
+        <div className="mb-3 flex gap-2">
+          {(["Support", "Pré-vente"] as Tab[]).map((tab) => {
+            const active = tab === activeTab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                aria-pressed={active}
+                className={[
+                  "rounded-lg border px-3 py-2 text-sm transition-colors",
+                  active
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-background text-foreground border-foreground/20 hover:bg-foreground/5",
+                ].join(" ")}
+              >
+                {tab}
+              </button>
+            );
+          })}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Card */}
+        <div className="rounded-xl border border-foreground/15 bg-background">
+          {/* Chat area */}
+          <div
+            className="h-[420px] overflow-auto p-4 space-y-2"
+            aria-live="polite"
+            role="log"
+          >
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={[
+                  "max-w-[80%] rounded-xl px-3 py-2 text-sm",
+                  m.role === "user"
+                    ? "ml-auto bg-blue-100 text-blue-950 dark:bg-blue-900/40 dark:text-blue-50"
+                    : "mr-auto bg-foreground/10",
+                ].join(" ")}
+              >
+                {m.text}
+              </div>
+            ))}
+            {messages.length === 0 && (
+              <p className="text-sm text-foreground/60">Aucun message pour l’instant…</p>
+            )}
+          </div>
+
+          {/* Input row */}
+          <div className="flex items-center gap-2 border-t border-foreground/10 p-3">
+            <input
+              className="flex-1 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm outline-none focus:border-foreground/40"
+              placeholder={activeTab === "Support" ? "Écrire au support..." : "Écrire côté pré-vente..."}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" ? onSend() : undefined}
+            />
+            <button
+              onClick={onSend}
+              className="rounded-md border border-foreground bg-foreground px-3 py-2 text-sm text-background transition-colors hover:bg-foreground/90"
+            >
+              Envoyer
+            </button>
+            <button
+              onClick={onHandoff}
+              className="rounded-md border border-foreground/40 bg-background px-3 py-2 text-sm transition-colors hover:bg-foreground/5"
+            >
+              Handoff
+            </button>
+          </div>
+        </div>
+
+        <p className="mt-3 text-xs text-foreground/50">
+          Astuce : regarde les logs du terminal quand tu cliques <strong>Handoff</strong> — tu dois voir <code>[HANDOFF]</code>.
+        </p>
+      </div>
     </div>
   );
 }
