@@ -6,14 +6,21 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     console.log("[HANDOFF]", JSON.stringify(body, null, 2));
 
-    // Optionnel : envoi Slack si le webhook est présent
-    const slackWebhook = process.env.SLACK_WEBHOOK_URL;
-    if (slackWebhook) {
-      // fire-and-forget (ne bloque pas la réponse)
-      fetch(slackWebhook, {
+    const slackWebhook =
+      process.env.SLACK_WEBHOOK_URL_SUPPORT ||
+      process.env.SLACK_WEBHOOK_URL;
+    if (slackWebhook && slackWebhook !== "placeholder") {
+      const fields = [
+        { title: "Onglet", value: String(body?.tab ?? "Support"), short: true },
+        { title: "Quand", value: new Date().toISOString(), short: true },
+        { title: "Question", value: body?.lastUserMessage || "(vide)", short: false },
+        { title: "Réponse IA", value: (body?.lastAiReply || "(n/a)").slice(0, 500), short: false },
+        { title: "Sources", value: (Array.isArray(body?.sources) ? body.sources.join(" | ") : (body?.sources || "—")), short: false },
+      ];
+      await fetch(slackWebhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: `Handoff: ${JSON.stringify(body)}` }),
+        body: JSON.stringify({ text: "Handoff Support", attachments: [{ fields }] }),
       }).catch(() => {});
     }
 
@@ -24,7 +31,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Optionnel : pour ping rapide de la route
 export function GET() {
   return NextResponse.json({ ok: true, hint: "Use POST with JSON body." });
 }

@@ -24,6 +24,13 @@ export default function Home() {
 
   const messages = activeTab === "Support" ? supportMessages : presalesMessages;
   const setMessages = activeTab === "Support" ? setSupportMessages : setPresalesMessages;
+  const [lastSupportReply, setLastSupportReply] = useState<string | null>(null);
+  const [lastSupportSources, setLastSupportSources] = useState<string[]>([]);
+  const [need, setNeed] = useState("");
+  const [budget, setBudget] = useState("");
+  const [timeline, setTimeline] = useState("");
+  const [tool, setTool] = useState("");
+  const [email, setEmail] = useState("");
 
   const lastUserMessage = useMemo(
     () => [...messages].reverse().find((m) => m.role === "user")?.text ?? null,
@@ -35,22 +42,58 @@ export default function Home() {
     if (!text) return;
     setInput("");
     const now = new Date().toISOString();
-
+  
     setMessages((m) => [...m, { id: uid(), role: "user", text, at: now }]);
-
-    // Réponse mock (le vrai RAG viendra demain)
-    setTimeout(() => {
+  
+    if (activeTab === "Support") {
+      try {
+        const res = await fetch("/api/support-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text }),
+        });
+        const data = await res.json();
+        const reply = data?.ok && typeof data.reply === "string"
+          ? data.reply
+          : "⚠️ Erreur serveur (support)";
+    
+        setLastSupportReply(reply);
+        setLastSupportSources(Array.isArray(data?.sources) ? data.sources.map((s:any)=>s.question) : []);
+    
+        setMessages((m) => [
+          ...m,
+          { id: uid(), role: "agent", text: reply, at: new Date().toISOString() },
+        ]);
+    
+        // Suggestion d’escalade auto si nécessaire
+        if (data?.needHandoff) {
+          setMessages((m) => [
+            ...m,
+            { id: uid(), role: "agent", text: "Je peux vous mettre en relation avec un humain tout de suite. Cliquez sur Handoff.", at: new Date().toISOString() },
+          ]);
+        }
+      } catch {
+        setMessages((m) => [
+          ...m,
+          { id: uid(), role: "agent", text: "⚠️ Erreur réseau", at: new Date().toISOString() },
+        ]);
+      }
+    } else {
+      // Pré-vente : on n'utilise pas le chat libre, on passe par le formulaire
       setMessages((m) => [
         ...m,
         {
           id: uid(),
           role: "agent",
-          text: `J'ai reçu: "${text}" (réponse mock)`,
+          text: "Pour la pré-vente, utilise le formulaire au-dessus (besoin, budget, délai, email) puis clique Envoyer. Je te donne ensuite un lien Calendly 👍",
           at: new Date().toISOString(),
         },
       ]);
-    }, 250);
+      return;
+    }
+    
   }
+  
 
   async function onHandoff() {
     try {
@@ -61,29 +104,29 @@ export default function Home() {
           tab: activeTab,
           lastUserMessage,
           transcript: messages,
+          lastAiReply: lastSupportReply,
+          sources: lastSupportSources,
           at: new Date().toISOString(),
         }),
       });
-
       const data = await res.json().catch(() => ({ ok: false }));
       setMessages((m) => [
         ...m,
         {
           id: uid(),
           role: "agent",
-          text: data?.ok ? "✅ Handoff envoyé (mock)" : "⚠️ Handoff échoué",
+          text: data?.ok ? "✅ Handoff envoyé" : "⚠️ Handoff échoué",
           at: new Date().toISOString(),
         },
       ]);
-      console.log("Handoff response:", data);
     } catch (e) {
-      console.error(e);
       setMessages((m) => [
         ...m,
         { id: uid(), role: "agent", text: "⚠️ Erreur handoff", at: new Date().toISOString() },
       ]);
     }
   }
+  
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -117,6 +160,66 @@ export default function Home() {
 
         {/* Card */}
         <div className="rounded-xl border border-foreground/15 bg-background">
+        {activeTab === "Pré-vente" && (
+          <form
+            className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border-b border-foreground/10"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                const res = await fetch("/api/presales", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ need, budget, timeline, tool, email }),
+                });
+            
+                // 🔒 parse robuste (dev reloading friendly)
+                let data: any = null;
+                const ct = res.headers.get("content-type") || "";
+                if (ct.includes("application/json")) {
+                  data = await res.json();
+                } else {
+                  const txt = await res.text();
+                  try { data = JSON.parse(txt); } catch { data = { ok: false }; }
+                  console.warn("Non-JSON presales response:", txt);
+                }
+            
+                if (data?.ok) {
+                  setMessages((m) => [
+                    ...m,
+                    {
+                      id: uid(),
+                      role: "agent",
+                      text: `✅ Lead qualifié (score ${data.score}/5). Réserver un RDV: ${data.calendlyUrl}`,
+                      at: new Date().toISOString(),
+                    },
+                  ]);
+                  // Option: ouvrir Calendly automatiquement
+                  // window.open(data.calendlyUrl, "_blank");
+                } else {
+                  setMessages((m) => [
+                    ...m,
+                    { id: uid(), role: "agent", text: "⚠️ Erreur qualification", at: new Date().toISOString() },
+                  ]);
+                }
+              } catch (err) {
+                console.error(err);
+                setMessages((m) => [
+                  ...m,
+                  { id: uid(), role: "agent", text: "⚠️ Erreur réseau (pré-vente)", at: new Date().toISOString() },
+                ]);
+              }
+            }}
+            
+          >
+            <input className="border rounded px-2 py-1" placeholder="Besoin" value={need} onChange={(e)=>setNeed(e.target.value)} required />
+            <input className="border rounded px-2 py-1" placeholder="Budget (ex: 2 000 €)" value={budget} onChange={(e)=>setBudget(e.target.value)} />
+            <input className="border rounded px-2 py-1" placeholder="Délai (ex: 2-4 semaines)" value={timeline} onChange={(e)=>setTimeline(e.target.value)} />
+            <input className="border rounded px-2 py-1" placeholder="Outil actuel" value={tool} onChange={(e)=>setTool(e.target.value)} />
+            <input className="border rounded px-2 py-1 sm:col-span-2" placeholder="Email" type="email" value={email} onChange={(e)=>setEmail(e.target.value)} />
+            <button className="border rounded px-3 py-2 text-sm bg-foreground text-background sm:col-span-2">Envoyer</button>
+          </form>
+        )}
+
           {/* Chat area */}
           <div
             className="h-[420px] overflow-auto p-4 space-y-2"
@@ -143,26 +246,31 @@ export default function Home() {
 
           {/* Input row */}
           <div className="flex items-center gap-2 border-t border-foreground/10 p-3">
-            <input
-              className="flex-1 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm outline-none focus:border-foreground/40"
-              placeholder={activeTab === "Support" ? "Écrire au support..." : "Écrire côté pré-vente..."}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" ? onSend() : undefined}
-            />
-            <button
-              onClick={onSend}
-              className="rounded-md border border-foreground bg-foreground px-3 py-2 text-sm text-background transition-colors hover:bg-foreground/90"
-            >
-              Envoyer
-            </button>
-            <button
-              onClick={onHandoff}
-              className="rounded-md border border-foreground/40 bg-background px-3 py-2 text-sm transition-colors hover:bg-foreground/5"
-            >
-              Handoff
-            </button>
-          </div>
+  <input
+    className="flex-1 rounded-md border border-foreground/20 bg-background px-3 py-2 text-sm outline-none focus:border-foreground/40"
+    placeholder={activeTab === "Support" ? "Écrire au support..." : "Écrire côté pré-vente..."}
+    value={input}
+    onChange={(e) => setInput(e.target.value)}
+    onKeyDown={(e) => e.key === "Enter" ? onSend() : undefined}
+  />
+  <button
+    onClick={onSend}
+    className="rounded-md border border-foreground bg-foreground px-3 py-2 text-sm text-background transition-colors hover:bg-foreground/90"
+  >
+    Envoyer
+  </button>
+
+  {/* ➜ Handoff visible uniquement en Support */}
+  {activeTab === "Support" && (
+    <button
+      onClick={onHandoff}
+      className="rounded-md border border-foreground/40 bg-background px-3 py-2 text-sm transition-colors hover:bg-foreground/5"
+    >
+      Handoff
+    </button>
+  )}
+</div>
+
         </div>
 
         <p className="mt-3 text-xs text-foreground/50">
