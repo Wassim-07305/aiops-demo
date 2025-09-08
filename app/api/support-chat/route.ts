@@ -9,7 +9,7 @@ const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_AN
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! });
 
 const TOP_K = 5;
-const SIM_THRESHOLD = 0.78;
+const SIM_THRESHOLD = 0.76;
 
 const SYSTEM_PROMPT = `
 Tu es un assistant de support e-commerce STRICT.
