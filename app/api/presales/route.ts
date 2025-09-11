@@ -1,6 +1,10 @@
 // app/api/presales/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
 export const runtime = 'nodejs';
+
+const sbAdmin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!);
 
 type Presales = {
   need: string;
@@ -64,6 +68,18 @@ export async function POST(req: NextRequest) {
     }
 
     // (Option) Zapier webhook ici…
+
+    // → Insert dans Supabase
+    await sbAdmin.from('presales_log').insert({
+      need: payload.need,
+      budget: payload.budget ?? null,
+      timeline: payload.timeline ?? null,
+      tool: payload.tool ?? null,
+      email: payload.email ?? null,
+      score,
+      calendly_url: calendlyUrl,
+      slack_ok: !!(slack && slack !== 'placeholder'),
+    });
 
     return NextResponse.json({ ok: true, score, calendlyUrl, slackOk, slackStatus, slackError });
   } catch (e) {
