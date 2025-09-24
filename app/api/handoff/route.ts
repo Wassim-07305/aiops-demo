@@ -35,8 +35,12 @@ export async function POST(req: NextRequest) {
         { title: "Onglet", value: String(body?.tab ?? "Support"), short: true },
         { title: "Quand", value: new Date().toISOString(), short: true },
         { title: "Shop", value: String(body?.shop ?? "n/a"), short: true },
+        { title: "Email", value: String(body?.email ?? "n/a"), short: true },
+        { title: "Nom", value: String(body?.name ?? "n/a"), short: true },
+        { title: "Page", value: String(body?.pageUrl ?? "n/a"), short: false },
         { title: "Question", value: body?.lastUserMessage || "(vide)", short: false },
         { title: "Réponse IA", value: (body?.lastAiReply || "(n/a)").slice(0, 500), short: false },
+        { title: "UA", value: String(body?.userAgent ?? "n/a").slice(0, 120), short: false },
         { title: "Sources", value: (Array.isArray(body?.sources) ? body.sources.join(" | ") : (body?.sources || "—")), short: false },
       ];
 
